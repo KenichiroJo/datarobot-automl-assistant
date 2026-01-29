@@ -13,6 +13,14 @@ export { AccuracyStep } from './AccuracyStep';
 export { TestStep } from './TestStep';
 export { DeployStep } from './DeployStep';
 
+// Charts (Plotly)
+export {
+  ROCCurveChart,
+  FeatureImpactChart,
+  LiftChart,
+  ConfusionMatrixChart,
+} from './charts';
+
 // Types
 export type { AutopilotConfig } from './BuildStep';
 export type { DeployConfig } from './DeployStep';

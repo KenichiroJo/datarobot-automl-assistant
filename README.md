@@ -4,7 +4,7 @@
   </a>
 </p>
 <p align="center">
-    <span style="font-size: 1.5em; font-weight: bold; display: block;">DataRobot Agentic Workflow Application Template</span>
+    <span style="font-size: 1.5em; font-weight: bold; display: block;">DataRobot AutoML Assistant</span>
 </p>
 
 <p align="center">
@@ -16,13 +16,46 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/datarobot-community/datarobot-agent-application/tags">
-    <img src="https://img.shields.io/github/v/tag/datarobot-community/datarobot-agent-application?label=version" alt="Latest Release">
+  <a href="https://github.com/KenichiroJo/datarobot-automl-assistant/tags">
+    <img src="https://img.shields.io/github/v/tag/KenichiroJo/datarobot-automl-assistant?label=version" alt="Latest Release">
   </a>
   <a href="/LICENSE">
-    <img src="https://img.shields.io/github/license/datarobot-community/datarobot-agent-application" alt="License">
+    <img src="https://img.shields.io/github/license/KenichiroJo/datarobot-automl-assistant" alt="License">
   </a>
 </p>
+
+## 🤖 AutoML Assistant とは
+
+顧客のヒアリング内容からAIエージェントで解きたい課題を定義し、テーマ化するアシスタントです。
+DataRobotのAutoML/MLOps機能と統合され、7ステップのワークフローでAIプロジェクトを完了まで導きます。
+
+### ✨ 主な機能
+
+| ステップ | 機能 | 説明 |
+|---------|------|------|
+| 1️⃣ テーマ定義 | 業界・ユースケース選択 | 12業界×5ユースケースから選択、テーマ定義シート作成 |
+| 2️⃣ データ | データアップロード | サンプルデータまたは独自データをAIカタログに登録 |
+| 3️⃣ 整形 | EDA・前処理 | データ探索、特徴量エンジニアリング |
+| 4️⃣ 構築 | Autopilot | Quick/Comprehensive/Manualモードでモデル構築 |
+| 5️⃣ 精度 | モデル評価 | Leaderboard、ROC曲線、Feature Impact、Lift Chart |
+| 6️⃣ テスト | 予測テスト | フォーム入力またはファイルで予測実行 |
+| 7️⃣ デプロイ | MLOps | Serverless/Cluster/External環境へデプロイ |
+
+### 🏭 対応業界（12業界×5ユースケース）
+
+- 製造業、金融・銀行、小売・EC、医療・ヘルスケア
+- 通信、エネルギー・公益、物流・運輸、保険
+- 不動産、教育、人事・採用、マーケティング・広告
+
+### 🛠️ 技術スタック
+
+- **Agent**: LangGraph (ReActパターン) + MCP Tools
+- **Frontend**: React + TypeScript + Tailwind CSS + Zustand
+- **Backend**: FastAPI + AG-UI Protocol
+- **Charts**: Plotly.js (ROC, Feature Impact, Lift, Confusion Matrix)
+- **Export**: Word (.docx) 形式でレポート出力
+
+---
 
 This repository provides a ready-to-use application template for building and deploying agentic workflows with multi-agent frameworks, a FastAPI backend server, a React frontend, and an MCP server.
 The template streamlines the process of setting up new agentic applications with minimal configuration requirements.
