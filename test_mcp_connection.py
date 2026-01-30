@@ -6,9 +6,11 @@ MCP Server 接続テストスクリプト
 import asyncio
 import os
 import sys
+import socket
 
-# 環境変数の確認
+
 def check_env():
+    """環境変数の確認"""
     print("=" * 50)
     print("🔍 環境変数チェック")
     print("=" * 50)
@@ -27,7 +29,6 @@ def check_env():
     for var in required_vars:
         value = os.environ.get(var)
         if value:
-            # トークンは最初の8文字のみ表示
             display = value[:8] + "..." if len(value) > 8 else value
             print(f"  ✅ {var}: {display}")
         else:
@@ -45,82 +46,70 @@ def check_env():
 
 
 def test_mcp_health():
-    """MCPサーバーのヘルスチェック"""
-    import urllib.request
-    import json
-    
+    """MCPサーバーのヘルスチェック（ソケット接続テスト）"""
     print("\n" + "=" * 50)
     print("🏥 MCPサーバー ヘルスチェック")
     print("=" * 50)
     
-    mcp_port = os.environ.get("MCP_SERVER_PORT", "9000")
-    mcp_url = f"http://localhost:{mcp_port}"
+    mcp_port = int(os.environ.get("MCP_SERVER_PORT", "9000"))
     
-    endpoints = [
-        "/health",
-        "/mcp",
-        "/docs",
-    ]
-    
-    for endpoint in endpoints:
-        url = mcp_url + endpoint
-        try:
-            req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=5) as response:
-                print(f"  ✅ {endpoint}: {response.status} OK")
-        except urllib.error.HTTPError as e:
-            print(f"  ⚠️  {endpoint}: HTTP {e.code}")
-        except Exception as e:
-            print(f"  ❌ {endpoint}: 接続失敗 - {e}")
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        result = sock.connect_ex(('localhost', mcp_port))
+        sock.close()
+        
+        if result == 0:
+            print(f"  ✅ ポート {mcp_port} でMCPサーバーが起動中")
+            return True
+        else:
+            print(f"  ❌ ポート {mcp_port} に接続できません")
+            return False
+    except Exception as e:
+        print(f"  ❌ 接続テスト失敗: {e}")
+        return False
 
 
-def test_mcp_tools():
-    """MCPツール一覧の取得"""
-    import urllib.request
-    import json
-    
+async def test_mcp_tools_async():
+    """MCPツール一覧の取得（正式なMCPプロトコル使用）"""
     print("\n" + "=" * 50)
     print("🔧 MCPツール一覧")
     print("=" * 50)
+    
+    try:
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+    except ImportError:
+        print("  ⚠️  mcp パッケージがインストールされていません")
+        print("     pip install mcp でインストールしてください")
+        return False
     
     mcp_port = os.environ.get("MCP_SERVER_PORT", "9000")
     mcp_url = f"http://localhost:{mcp_port}/mcp"
     
     try:
-        # MCP tools/list リクエスト
-        data = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/list",
-            "params": {}
-        }).encode()
-        
-        req = urllib.request.Request(
-            mcp_url,
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        
-        with urllib.request.urlopen(req, timeout=10) as response:
-            result = json.loads(response.read().decode())
-            
-            if "result" in result and "tools" in result["result"]:
-                tools = result["result"]["tools"]
+        async with streamablehttp_client(url=mcp_url) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                
+                tools_result = await session.list_tools()
+                tools = tools_result.tools
+                
                 print(f"\n  登録済みツール数: {len(tools)}")
                 print("\n  ツール一覧:")
-                for tool in tools:
-                    name = tool.get("name", "unknown")
-                    desc = tool.get("description", "")[:50]
-                    print(f"    • {name}")
+                for i, tool in enumerate(tools, 1):
+                    print(f"    {i}. {tool.name}")
+                
                 return True
-            else:
-                print(f"  ⚠️  予期しないレスポンス: {result}")
-                return False
                 
     except Exception as e:
         print(f"  ❌ ツール取得失敗: {e}")
         return False
+
+
+def test_mcp_tools():
+    """MCPツール一覧の取得（非同期ラッパー）"""
+    return asyncio.run(test_mcp_tools_async())
 
 
 def test_datarobot_connection():
@@ -140,7 +129,6 @@ def test_datarobot_connection():
         return False
     
     try:
-        # /projects エンドポイントをテスト
         url = f"{endpoint}/projects/?limit=1"
         req = urllib.request.Request(
             url,
@@ -170,7 +158,6 @@ def test_datarobot_connection():
 def test_agent_connection():
     """エージェント接続テスト"""
     import urllib.request
-    import json
     
     print("\n" + "=" * 50)
     print("🧠 エージェント接続テスト")
@@ -190,7 +177,7 @@ def test_agent_connection():
 
 
 def main():
-    print("\n" + "🔬 MCP接続テスト開始" + "\n")
+    print("\n🔬 MCP接続テスト開始\n")
     
     results = {
         "env": check_env(),
@@ -201,8 +188,7 @@ def main():
     }
     
     try:
-        test_mcp_health()
-        results["mcp_health"] = True
+        results["mcp_health"] = test_mcp_health()
     except Exception as e:
         print(f"  ❌ MCPヘルスチェック失敗: {e}")
     
@@ -240,7 +226,6 @@ def main():
     
     print("\n")
     
-    # 全て成功なら0、そうでなければ1を返す
     return 0 if all(results.values()) else 1
 
 
