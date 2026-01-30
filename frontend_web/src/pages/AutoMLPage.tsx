@@ -12,6 +12,9 @@ import { AssistantChatPanel } from '@/components/automl/AssistantChatPanel';
 import { Menu, Plus, Trash2, MessageCircle } from 'lucide-react';
 import type { ThemeDefinition, Industry, UseCase, DatasetInfo, ModelInfo, WorkflowStep } from '@/types/automl';
 
+// API Base URL
+const API_BASE_URL = '/api/v1';
+
 export const AutoMLPage: React.FC = () => {
   const {
     projects,
@@ -108,24 +111,63 @@ export const AutoMLPage: React.FC = () => {
 
   // Data Step ハンドラー
   const handleFileUpload = async (file: File): Promise<void> => {
-    // TODO: 実際のファイルアップロードAPI呼び出し
-    console.log('Uploading file:', file.name);
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log('Uploading file to DataRobot:', file.name);
     
-    if (activeProjectId) {
-      const mockDatasetInfo: DatasetInfo = {
-        datasetId: `dataset-${Date.now()}`,
+    try {
+      // ファイルをBase64に変換（大きいファイルは分割が必要）
+      const reader = new FileReader();
+      
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const base64 = reader.result as string;
+          resolve(base64.split(',')[1] || base64);
+        };
+        reader.onerror = reject;
+      });
+      
+      reader.readAsDataURL(file);
+      const base64Content = await base64Promise;
+      
+      // ファイル情報をlocalStorageに一時保存（エージェントが参照）
+      const fileInfo = {
         name: file.name,
-        rows: 10000,
-        columns: 15,
-        features: ['customer_id', 'customer_tenure', 'monthly_charges', 'contract_type', 'payment_method', 'total_charges', 'tech_support', 'internet_service', 'online_security', 'churn'],
-        targetColumn: activeProject?.themeDefinition?.targetColumn || 'churn',
+        size: file.size,
+        type: file.type,
+        base64: base64Content.substring(0, 1000) + '...', // 最初の部分のみ保存
         uploadedAt: new Date().toISOString(),
       };
-      updateProject(activeProjectId, { 
-        datasetId: mockDatasetInfo.datasetId,
-        datasetInfo: mockDatasetInfo,
-      });
+      localStorage.setItem('pendingUpload', JSON.stringify(fileInfo));
+      
+      // プロジェクト情報を更新
+      if (activeProjectId) {
+        const datasetInfo: DatasetInfo = {
+          datasetId: `pending-${Date.now()}`,
+          name: file.name,
+          rows: 0,
+          columns: 0,
+          features: [],
+          targetColumn: activeProject?.themeDefinition?.targetColumn || '',
+          uploadedAt: new Date().toISOString(),
+        };
+        updateProject(activeProjectId, { 
+          datasetId: datasetInfo.datasetId,
+          datasetInfo: datasetInfo,
+        });
+      }
+      
+      // チャットを開いてユーザーにアップロードを促す
+      setChatOpen(true);
+      setChatMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `📁 **${file.name}** (${(file.size / 1024).toFixed(1)} KB) がアップロードの準備ができました。\n\nDataRobot AIカタログへのアップロードを開始するには、以下のように指示してください：\n\n「このファイルをDataRobotにアップロードして」\n\nまたは、サンプルデータを使用する場合は「サンプルデータを生成して」と入力してください。`,
+        },
+      ]);
+      
+    } catch (error) {
+      console.error('Upload preparation error:', error);
+      alert(`❌ ファイルの準備に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
