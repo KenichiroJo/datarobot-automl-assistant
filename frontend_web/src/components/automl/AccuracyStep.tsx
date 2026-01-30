@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { ModelInfo, ROCCurveData, LiftChartData } from '@/types/automl';
 import { Trophy, TrendingUp, BarChart2, Activity, Download, Eye } from 'lucide-react';
+import { ROCCurveChart, FeatureImpactChart, LiftChart } from './charts';
 
 interface AccuracyStepProps {
   projectId: string | null;
@@ -13,15 +14,30 @@ interface AccuracyStepProps {
 
 // プレースホルダーデータ（実際のAPIからのデータで上書きされる）
 const PLACEHOLDER_FEATURE_IMPACT = [
-  { feature: 'customer_tenure', impact: 0.28 },
-  { feature: 'monthly_charges', impact: 0.22 },
-  { feature: 'contract_type', impact: 0.18 },
-  { feature: 'payment_method', impact: 0.12 },
-  { feature: 'total_charges', impact: 0.10 },
-  { feature: 'tech_support', impact: 0.05 },
-  { feature: 'internet_service', impact: 0.03 },
-  { feature: 'online_security', impact: 0.02 },
+  { featureName: 'customer_tenure', impact: 0.28 },
+  { featureName: 'monthly_charges', impact: 0.22 },
+  { featureName: 'contract_type', impact: 0.18 },
+  { featureName: 'payment_method', impact: 0.12 },
+  { featureName: 'total_charges', impact: 0.10 },
+  { featureName: 'tech_support', impact: 0.05 },
+  { featureName: 'internet_service', impact: 0.03 },
+  { featureName: 'online_security', impact: 0.02 },
 ];
+
+// プレースホルダーROCデータ
+const PLACEHOLDER_ROC_DATA: ROCCurveData = {
+  fpr: [0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+  tpr: [0, 0.35, 0.55, 0.68, 0.78, 0.86, 0.91, 0.94, 0.96, 0.98, 0.99, 0.995, 1.0],
+  auc: 0.9289,
+  thresholds: [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.15, 0.1, 0.05, 0.0],
+};
+
+// プレースホルダーリフトデータ
+const PLACEHOLDER_LIFT_DATA: LiftChartData = {
+  bins: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+  lift: [4.2, 3.1, 2.4, 1.8, 1.4, 1.1, 0.8, 0.5, 0.3, 0.1],
+  actual: [0.42, 0.31, 0.24, 0.18, 0.14, 0.11, 0.08, 0.05, 0.03, 0.01],
+};
 
 export const AccuracyStep: React.FC<AccuracyStepProps> = ({
   projectId,
@@ -33,6 +49,8 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'leaderboard' | 'feature' | 'roc' | 'lift'>('leaderboard');
   const [featureImpact, setFeatureImpact] = useState(PLACEHOLDER_FEATURE_IMPACT);
+  const [rocData, setRocData] = useState<ROCCurveData>(PLACEHOLDER_ROC_DATA);
+  const [liftData, setLiftData] = useState<LiftChartData>(PLACEHOLDER_LIFT_DATA);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -41,6 +59,14 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
       onLoadInsights().finally(() => setIsLoading(false));
     }
   }, [projectId, bestModel, onLoadInsights]);
+
+  // bestModelのAUCでROCデータを更新
+  const currentRocData = useMemo(() => {
+    if (bestModel?.metrics.auc) {
+      return { ...rocData, auc: bestModel.metrics.auc };
+    }
+    return rocData;
+  }, [bestModel, rocData]);
 
   const renderLeaderboard = () => (
     <div className="space-y-4">
@@ -105,28 +131,19 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
       <h3 className="text-lg font-semibold text-white flex items-center gap-2">
         <BarChart2 className="w-5 h-5 text-blue-400" />
         特徴量の重要度
+        <span className="ml-2 text-xs text-gray-400 font-normal">
+          （インタラクティブ：ホバーで詳細表示）
+        </span>
       </h3>
       
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-        <div className="space-y-3">
-          {featureImpact.map((item, index) => (
-            <div key={item.feature} className="space-y-1">
-              <div className="flex justify-between text-sm">
-                <span className="text-white">{item.feature}</span>
-                <span className="text-[#81FBA5]">{(item.impact * 100).toFixed(1)}%</span>
-              </div>
-              <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    index === 0 ? 'bg-[#81FBA5]' : 
-                    index < 3 ? 'bg-blue-500' : 'bg-gray-500'
-                  }`}
-                  style={{ width: `${item.impact * 100 / featureImpact[0].impact * 100}%` }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
+        <FeatureImpactChart
+          data={featureImpact}
+          width={600}
+          height={400}
+          topN={10}
+          showPercentage={true}
+        />
       </div>
     </div>
   );
@@ -136,66 +153,22 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
       <h3 className="text-lg font-semibold text-white flex items-center gap-2">
         <TrendingUp className="w-5 h-5 text-purple-400" />
         ROC曲線
+        <span className="ml-2 text-xs text-gray-400 font-normal">
+          （ズーム・パン対応、カメラアイコンで画像保存）
+        </span>
       </h3>
       
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
-        {/* SVG でシンプルなROC曲線を描画 */}
-        <svg viewBox="0 0 400 400" className="w-full max-w-md mx-auto">
-          {/* 軸 */}
-          <line x1="50" y1="350" x2="350" y2="350" stroke="#4B5563" strokeWidth="2" />
-          <line x1="50" y1="350" x2="50" y2="50" stroke="#4B5563" strokeWidth="2" />
-          
-          {/* グリッド */}
-          {[0.25, 0.5, 0.75].map((val) => (
-            <React.Fragment key={val}>
-              <line
-                x1={50 + val * 300}
-                y1="350"
-                x2={50 + val * 300}
-                y2="50"
-                stroke="#374151"
-                strokeWidth="1"
-                strokeDasharray="4,4"
-              />
-              <line
-                x1="50"
-                y1={350 - val * 300}
-                x2="350"
-                y2={350 - val * 300}
-                stroke="#374151"
-                strokeWidth="1"
-                strokeDasharray="4,4"
-              />
-            </React.Fragment>
-          ))}
-          
-          {/* 対角線（ランダム） */}
-          <line x1="50" y1="350" x2="350" y2="50" stroke="#6B7280" strokeWidth="1" strokeDasharray="4,4" />
-          
-          {/* ROC曲線 */}
-          <path
-            d="M 50 350 Q 80 200, 150 120 T 250 70 T 350 50"
-            fill="none"
-            stroke="#81FBA5"
-            strokeWidth="3"
-          />
-          
-          {/* 曲線下面積 */}
-          <path
-            d="M 50 350 Q 80 200, 150 120 T 250 70 T 350 50 L 350 350 Z"
-            fill="#81FBA5"
-            fillOpacity="0.1"
-          />
-          
-          {/* ラベル */}
-          <text x="200" y="390" textAnchor="middle" fill="#9CA3AF" fontSize="14">偽陽性率 (FPR)</text>
-          <text x="15" y="200" textAnchor="middle" fill="#9CA3AF" fontSize="14" transform="rotate(-90, 15, 200)">真陽性率 (TPR)</text>
-          
-          {/* AUC値 */}
-          <text x="250" y="250" textAnchor="middle" fill="#81FBA5" fontSize="24" fontWeight="bold">
-            AUC = {bestModel?.metrics.auc?.toFixed(4) || '0.9289'}
-          </text>
-        </svg>
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex justify-center">
+        <ROCCurveChart
+          data={currentRocData}
+          width={550}
+          height={450}
+          showLegend={true}
+        />
+      </div>
+      
+      <div className="text-center text-sm text-gray-400">
+        AUC（曲線下面積）が1に近いほど、モデルの分類性能が高いことを示します
       </div>
     </div>
   );
@@ -205,71 +178,24 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
       <h3 className="text-lg font-semibold text-white flex items-center gap-2">
         <Activity className="w-5 h-5 text-orange-400" />
         リフトチャート
+        <span className="ml-2 text-xs text-gray-400 font-normal">
+          （ホバーでリフト値表示）
+        </span>
       </h3>
       
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
-        {/* SVG でシンプルなリフトチャートを描画 */}
-        <svg viewBox="0 0 400 400" className="w-full max-w-md mx-auto">
-          {/* 軸 */}
-          <line x1="50" y1="350" x2="350" y2="350" stroke="#4B5563" strokeWidth="2" />
-          <line x1="50" y1="350" x2="50" y2="50" stroke="#4B5563" strokeWidth="2" />
-          
-          {/* リフト値を示すバー */}
-          {[
-            { decile: 1, lift: 4.2 },
-            { decile: 2, lift: 3.1 },
-            { decile: 3, lift: 2.4 },
-            { decile: 4, lift: 1.8 },
-            { decile: 5, lift: 1.4 },
-            { decile: 6, lift: 1.1 },
-            { decile: 7, lift: 0.8 },
-            { decile: 8, lift: 0.5 },
-            { decile: 9, lift: 0.3 },
-            { decile: 10, lift: 0.1 },
-          ].map((item, index) => (
-            <React.Fragment key={item.decile}>
-              <rect
-                x={55 + index * 29}
-                y={350 - (item.lift / 4.5) * 280}
-                width="24"
-                height={(item.lift / 4.5) * 280}
-                fill={index < 3 ? '#81FBA5' : index < 6 ? '#3B82F6' : '#6B7280'}
-                rx="2"
-              />
-              <text
-                x={67 + index * 29}
-                y="365"
-                textAnchor="middle"
-                fill="#9CA3AF"
-                fontSize="10"
-              >
-                {item.decile}
-              </text>
-            </React.Fragment>
-          ))}
-          
-          {/* 基準線（Lift = 1） */}
-          <line
-            x1="50"
-            y1={350 - (1 / 4.5) * 280}
-            x2="350"
-            y2={350 - (1 / 4.5) * 280}
-            stroke="#EF4444"
-            strokeWidth="2"
-            strokeDasharray="6,3"
-          />
-          <text x="360" y={350 - (1 / 4.5) * 280 + 5} fill="#EF4444" fontSize="12">
-            Lift = 1
-          </text>
-          
-          {/* ラベル */}
-          <text x="200" y="390" textAnchor="middle" fill="#9CA3AF" fontSize="14">デシル</text>
-          <text x="15" y="200" textAnchor="middle" fill="#9CA3AF" fontSize="14" transform="rotate(-90, 15, 200)">リフト値</text>
-        </svg>
-        
-        <div className="mt-4 text-center text-sm text-gray-400">
-          上位10%の顧客で、ランダム選択の<span className="text-[#81FBA5] font-bold">4.2倍</span>の精度
-        </div>
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex justify-center">
+        <LiftChart
+          data={liftData}
+          width={550}
+          height={450}
+          showCumulative={true}
+        />
+      </div>
+      
+      <div className="text-center text-sm text-gray-400">
+        上位10%の顧客で、ランダム選択の
+        <span className="text-[#81FBA5] font-bold mx-1">{liftData.lift[0].toFixed(1)}倍</span>
+        の精度
       </div>
     </div>
   );
@@ -299,13 +225,13 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as typeof activeTab)}
-            className={`
+            className={\`
               flex items-center gap-2 px-4 py-3 font-medium transition-colors border-b-2 -mb-px
-              ${activeTab === tab.id
+              \${activeTab === tab.id
                 ? 'border-[#81FBA5] text-[#81FBA5]'
                 : 'border-transparent text-gray-400 hover:text-white'
               }
-            `}
+            \`}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
@@ -314,11 +240,19 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
       </div>
 
       {/* タブコンテンツ */}
-      <div className="min-h-[400px]">
-        {activeTab === 'leaderboard' && renderLeaderboard()}
-        {activeTab === 'feature' && renderFeatureImpact()}
-        {activeTab === 'roc' && renderROCCurve()}
-        {activeTab === 'lift' && renderLiftChart()}
+      <div className="min-h-[500px]">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-[400px]">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#81FBA5]"></div>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'leaderboard' && renderLeaderboard()}
+            {activeTab === 'feature' && renderFeatureImpact()}
+            {activeTab === 'roc' && renderROCCurve()}
+            {activeTab === 'lift' && renderLiftChart()}
+          </>
+        )}
       </div>
 
       {/* アクションボタン */}
@@ -331,7 +265,7 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
           レポートをダウンロード
         </button>
         <button
-          onClick={() => window.open(`https://app.datarobot.com/projects/${projectId}`, '_blank')}
+          onClick={() => window.open(\`https://app.datarobot.com/projects/\${projectId}\`, '_blank')}
           disabled={!projectId}
           className="flex-1 py-3 border border-[#81FBA5] text-[#81FBA5] rounded-lg hover:bg-[#81FBA5]/10 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
         >
