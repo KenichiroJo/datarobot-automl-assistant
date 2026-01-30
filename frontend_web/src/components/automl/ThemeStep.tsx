@@ -33,6 +33,7 @@ export const ThemeStep: React.FC<ThemeStepProps> = ({
   }, [themeDefinition?.industry]);
 
   const handleIndustrySelect = (industry: Industry) => {
+    console.log('[ThemeStep] Industry selected:', industry);
     onUpdateTheme({
       industry: industry.id,
       industryName: industry.name,

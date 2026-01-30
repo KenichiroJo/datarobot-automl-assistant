@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useState } from 'react';
 import { useAutoMLStore } from '@/hooks/use-automl-store';
 import { WorkflowStepper } from '@/components/automl/WorkflowStepper';
 import { ThemeStep } from '@/components/automl/ThemeStep';
@@ -9,8 +9,8 @@ import { AccuracyStep } from '@/components/automl/AccuracyStep';
 import { TestStep } from '@/components/automl/TestStep';
 import { DeployStep, type DeployConfig } from '@/components/automl/DeployStep';
 import { AssistantChatPanel } from '@/components/automl/AssistantChatPanel';
-import { Menu, Plus, Trash2, MessageCircle, Terminal, X, ChevronDown, ChevronUp } from 'lucide-react';
-import type { ThemeDefinition, Industry, UseCase, DatasetInfo, ModelInfo, WorkflowStep } from '@/types/automl';
+import { Plus, Trash2, MessageCircle, Terminal, X, ChevronDown, ChevronUp } from 'lucide-react';
+import type { ThemeDefinition, DatasetInfo, ModelInfo, WorkflowStep } from '@/types/automl';
 
 // API Base URL
 const API_BASE_URL = '/api/v1';
@@ -103,38 +103,6 @@ export const AutoMLPage: React.FC = () => {
       content: `ご質問ありがとうございます。${message}についてですが、現在のステップ「${currentStep}」に関連する情報をお伝えします...` 
     }]);
     setIsChatLoading(false);
-  };
-
-  // Theme Step ハンドラー
-  const handleIndustrySelect = (industry: Industry) => {
-    if (activeProjectId) {
-      updateProject(activeProjectId, { 
-        themeDefinition: { 
-          ...(activeProject?.themeDefinition || {}),
-          industry,
-          useCase: undefined,
-        } as ThemeDefinition 
-      });
-    }
-  };
-
-  const handleUseCaseSelect = (useCase: UseCase) => {
-    if (activeProjectId && activeProject?.themeDefinition) {
-      updateProject(activeProjectId, { 
-        themeDefinition: { 
-          ...activeProject.themeDefinition,
-          useCase,
-          targetType: useCase.targetType,
-        } 
-      });
-    }
-  };
-
-  const handleThemeDefinitionSubmit = (definition: ThemeDefinition) => {
-    if (activeProjectId) {
-      updateProject(activeProjectId, { themeDefinition: definition });
-      goToNextStep();
-    }
   };
 
   // Data Step ハンドラー
@@ -395,12 +363,19 @@ export const AutoMLPage: React.FC = () => {
       case 'theme':
         return (
           <ThemeStep
-            selectedIndustry={activeProject.themeDefinition?.industry || null}
-            selectedUseCase={activeProject.themeDefinition?.useCase || null}
             themeDefinition={activeProject.themeDefinition || null}
-            onIndustrySelect={handleIndustrySelect}
-            onUseCaseSelect={handleUseCaseSelect}
-            onSubmit={handleThemeDefinitionSubmit}
+            onUpdateTheme={(theme: Partial<ThemeDefinition>) => {
+              if (activeProjectId) {
+                addLog('info', 'テーマ更新', JSON.stringify(theme, null, 2));
+                updateProject(activeProjectId, {
+                  themeDefinition: {
+                    ...(activeProject.themeDefinition || {}),
+                    ...theme,
+                  } as ThemeDefinition
+                });
+              }
+            }}
+            onComplete={goToNextStep}
           />
         );
       case 'data':
