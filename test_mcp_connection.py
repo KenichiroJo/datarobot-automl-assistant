@@ -8,6 +8,25 @@ import os
 import sys
 import socket
 
+# .envファイルを読み込む
+def load_dotenv_manual():
+    """python-dotenvがなくても.envを読み込む"""
+    env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    if os.path.exists(env_file):
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    value = value.strip('"').strip("'")
+                    os.environ.setdefault(key, value)
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    load_dotenv_manual()
+
 
 def check_env():
     """環境変数の確認"""
@@ -38,7 +57,7 @@ def check_env():
     for var in optional_vars:
         value = os.environ.get(var)
         if value:
-            print(f"  ℹ️  {var}: {value}")
+            print(f"  ✅ {var}: {value}")
         else:
             print(f"  ⚠️  {var}: 未設定 (デフォルト値使用)")
     
@@ -71,23 +90,21 @@ def test_mcp_health():
 
 
 async def test_mcp_tools_async():
-    """MCPツール一覧の取得（正式なMCPプロトコル使用）"""
+    """MCPツール一覧の取得"""
     print("\n" + "=" * 50)
     print("🔧 MCPツール一覧")
     print("=" * 50)
     
+    mcp_port = os.environ.get("MCP_SERVER_PORT", "9000")
+    mcp_url = os.environ.get("EXTERNAL_MCP_URL", f"http://localhost:{mcp_port}/mcp")
+    
+    print(f"  ℹ️  MCP URL: {mcp_url}")
+    
+    # mcpパッケージを試す
     try:
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
-    except ImportError:
-        print("  ⚠️  mcp パッケージがインストールされていません")
-        print("     pip install mcp でインストールしてください")
-        return False
-    
-    mcp_port = os.environ.get("MCP_SERVER_PORT", "9000")
-    mcp_url = f"http://localhost:{mcp_port}/mcp"
-    
-    try:
+        
         async with streamablehttp_client(url=mcp_url) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -96,14 +113,107 @@ async def test_mcp_tools_async():
                 tools = tools_result.tools
                 
                 print(f"\n  登録済みツール数: {len(tools)}")
-                print("\n  ツール一覧:")
-                for i, tool in enumerate(tools, 1):
-                    print(f"    {i}. {tool.name}")
+                if len(tools) > 0:
+                    print("\n  ツール一覧:")
+                    for i, tool in enumerate(tools, 1):
+                        print(f"    {i}. {tool.name}")
+                else:
+                    print("  ⚠️  ツールが登録されていません")
                 
-                return True
+                return len(tools) > 0
                 
+    except ImportError:
+        print("  ⚠️  mcp パッケージが未インストール")
+        print("     pip install mcp でインストールしてください")
+        # HTTPフォールバック
+        return await test_mcp_tools_http_fallback(mcp_url)
     except Exception as e:
         print(f"  ❌ ツール取得失敗: {e}")
+        return False
+
+
+async def test_mcp_tools_http_fallback(mcp_url: str):
+    """HTTPを使用したMCPツール取得（フォールバック）"""
+    import urllib.request
+    import json
+    
+    print("  ℹ️  HTTPフォールバックを使用")
+    
+    try:
+        # initializeリクエスト
+        init_data = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1.0"}
+            }
+        }).encode()
+        
+        req = urllib.request.Request(
+            mcp_url,
+            data=init_data,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+            method="POST"
+        )
+        
+        with urllib.request.urlopen(req, timeout=10) as response:
+            content = response.read().decode()
+            print(f"  ✅ MCPサーバー応答あり")
+            
+            # tools/listリクエスト
+            tools_data = json.dumps({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+                "params": {}
+            }).encode()
+            
+            req2 = urllib.request.Request(
+                mcp_url,
+                data=tools_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+                method="POST"
+            )
+            
+            with urllib.request.urlopen(req2, timeout=10) as response2:
+                content2 = response2.read().decode()
+                
+                # SSE形式からJSONを抽出
+                for line in content2.split('\n'):
+                    if line.startswith('data:'):
+                        json_str = line[5:].strip()
+                        if json_str:
+                            try:
+                                data = json.loads(json_str)
+                                if "result" in data and "tools" in data["result"]:
+                                    tools = data["result"]["tools"]
+                                    print(f"\n  登録済みツール数: {len(tools)}")
+                                    if len(tools) > 0:
+                                        print("\n  ツール一覧:")
+                                        for i, tool in enumerate(tools, 1):
+                                            name = tool.get("name", "unknown")
+                                            print(f"    {i}. {name}")
+                                        return True
+                                    else:
+                                        print("  ⚠️  ツールが登録されていません")
+                                        return False
+                            except json.JSONDecodeError:
+                                continue
+                
+                print(f"  ⚠️  ツール一覧を解析できませんでした")
+                return False
+                
+    except Exception as e:
+        print(f"  ❌ HTTPフォールバック失敗: {e}")
         return False
 
 
@@ -163,11 +273,10 @@ def test_agent_connection():
     print("🧠 エージェント接続テスト")
     print("=" * 50)
     
-    agent_port = os.environ.get("AGENT_PORT", "8842")
-    agent_url = f"http://localhost:{agent_port}"
+    agent_endpoint = os.environ.get("AGENT_ENDPOINT", "http://localhost:8842")
     
     try:
-        req = urllib.request.Request(f"{agent_url}/health", method="GET")
+        req = urllib.request.Request(f"{agent_endpoint}/health", method="GET")
         with urllib.request.urlopen(req, timeout=5) as response:
             print(f"  ✅ エージェント接続成功: {response.status}")
             return True
