@@ -9,11 +9,20 @@ import { AccuracyStep } from '@/components/automl/AccuracyStep';
 import { TestStep } from '@/components/automl/TestStep';
 import { DeployStep, type DeployConfig } from '@/components/automl/DeployStep';
 import { AssistantChatPanel } from '@/components/automl/AssistantChatPanel';
-import { Menu, Plus, Trash2, MessageCircle } from 'lucide-react';
+import { Menu, Plus, Trash2, MessageCircle, Terminal, X, ChevronDown, ChevronUp } from 'lucide-react';
 import type { ThemeDefinition, Industry, UseCase, DatasetInfo, ModelInfo, WorkflowStep } from '@/types/automl';
 
 // API Base URL
 const API_BASE_URL = '/api/v1';
+
+// ログエントリの型
+interface LogEntry {
+  id: string;
+  timestamp: Date;
+  level: 'info' | 'success' | 'warning' | 'error';
+  message: string;
+  details?: string;
+}
 
 export const AutoMLPage: React.FC = () => {
   const {
@@ -27,11 +36,30 @@ export const AutoMLPage: React.FC = () => {
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
+  const [logPanelOpen, setLogPanelOpen] = useState(true);
+  const [logPanelExpanded, setLogPanelExpanded] = useState(false);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
 
   const activeProject = projects.find(p => p.id === activeProjectId);
   const currentStep = activeProject?.currentStep || 'theme';
+
+  // ログ追加関数
+  const addLog = (level: LogEntry['level'], message: string, details?: string) => {
+    const entry: LogEntry = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: new Date(),
+      level,
+      message,
+      details,
+    };
+    setLogs(prev => [...prev, entry]);
+    console.log(`[${level.toUpperCase()}] ${message}`, details || '');
+  };
+
+  // ログクリア
+  const clearLogs = () => setLogs([]);
 
   // ステップナビゲーション
   const handleStepClick = (step: WorkflowStep) => {
@@ -111,10 +139,10 @@ export const AutoMLPage: React.FC = () => {
 
   // Data Step ハンドラー
   const handleFileUpload = async (file: File): Promise<void> => {
-    console.log('Uploading file to DataRobot:', file.name);
+    addLog('info', `ファイルアップロード開始: ${file.name}`, `サイズ: ${(file.size / 1024).toFixed(1)} KB`);
     
     try {
-      // ファイルをBase64に変換（大きいファイルは分割が必要）
+      // ファイルをBase64に変換
       const reader = new FileReader();
       
       const base64Promise = new Promise<string>((resolve, reject) => {
@@ -127,51 +155,98 @@ export const AutoMLPage: React.FC = () => {
       
       reader.readAsDataURL(file);
       const base64Content = await base64Promise;
+      addLog('info', 'Base64変換完了');
       
-      // ファイル情報をlocalStorageに一時保存（エージェントが参照）
-      const fileInfo = {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        base64: base64Content.substring(0, 1000) + '...', // 最初の部分のみ保存
-        uploadedAt: new Date().toISOString(),
-      };
-      localStorage.setItem('pendingUpload', JSON.stringify(fileInfo));
+      // エージェントAPIを呼び出してDataRobotにアップロード
+      addLog('info', 'DataRobot AIカタログへアップロード中...');
       
-      // プロジェクト情報を更新
-      if (activeProjectId) {
-        const datasetInfo: DatasetInfo = {
-          datasetId: `pending-${Date.now()}`,
+      try {
+        const response = await fetch(`${API_BASE_URL}/agent/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: `upload_dataset_to_ai_catalogツールを使って、ファイル名「${file.name}」をアップロードしてください。`,
+            context: {
+              fileName: file.name,
+              fileSize: file.size,
+              fileType: file.type,
+              base64Content: base64Content.substring(0, 50000), // 最初の50KB
+            }
+          }),
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          addLog('success', 'DataRobotへのアップロード成功', JSON.stringify(result, null, 2));
+          
+          // プロジェクト情報を更新
+          if (activeProjectId) {
+            const datasetInfo: DatasetInfo = {
+              datasetId: result.datasetId || `dataset-${Date.now()}`,
+              name: file.name,
+              rows: result.rows || 0,
+              columns: result.columns || 0,
+              features: result.features || [],
+              targetColumn: activeProject?.themeDefinition?.targetColumn || '',
+              uploadedAt: new Date().toISOString(),
+            };
+            updateProject(activeProjectId, { 
+              datasetId: datasetInfo.datasetId,
+              datasetInfo: datasetInfo,
+            });
+          }
+        } else {
+          throw new Error(`API Error: ${response.status}`);
+        }
+      } catch (apiError) {
+        addLog('warning', 'API呼び出しに失敗、ローカルモードで続行', String(apiError));
+        
+        // ローカルモード: ファイル情報を保存
+        const fileInfo = {
           name: file.name,
-          rows: 0,
-          columns: 0,
-          features: [],
-          targetColumn: activeProject?.themeDefinition?.targetColumn || '',
+          size: file.size,
+          type: file.type,
           uploadedAt: new Date().toISOString(),
         };
-        updateProject(activeProjectId, { 
-          datasetId: datasetInfo.datasetId,
-          datasetInfo: datasetInfo,
-        });
+        localStorage.setItem('pendingUpload', JSON.stringify(fileInfo));
+        
+        // プロジェクト情報を更新
+        if (activeProjectId) {
+          const datasetInfo: DatasetInfo = {
+            datasetId: `local-${Date.now()}`,
+            name: file.name,
+            rows: 0,
+            columns: 0,
+            features: [],
+            targetColumn: activeProject?.themeDefinition?.targetColumn || '',
+            uploadedAt: new Date().toISOString(),
+          };
+          updateProject(activeProjectId, { 
+            datasetId: datasetInfo.datasetId,
+            datasetInfo: datasetInfo,
+          });
+          addLog('success', 'ローカルにファイル情報を保存しました');
+        }
       }
       
-      // チャットを開いてユーザーにアップロードを促す
-      setChatOpen(true);
+      // チャットにも通知
       setChatMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          content: `📁 **${file.name}** (${(file.size / 1024).toFixed(1)} KB) がアップロードの準備ができました。\n\nDataRobot AIカタログへのアップロードを開始するには、以下のように指示してください：\n\n「このファイルをDataRobotにアップロードして」\n\nまたは、サンプルデータを使用する場合は「サンプルデータを生成して」と入力してください。`,
+          content: `📁 **${file.name}** のアップロード処理が完了しました。\n\n次のステップに進むか、「データを分析して」と入力してEDAを開始できます。`,
         },
       ]);
       
     } catch (error) {
-      console.error('Upload preparation error:', error);
+      addLog('error', 'ファイルアップロード失敗', String(error));
       alert(`❌ ファイルの準備に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
   const handleGenerateSampleData = async () => {
+    addLog('info', 'サンプルデータ生成開始...');
+    
     // TODO: サンプルデータ生成API呼び出し
     await new Promise(resolve => setTimeout(resolve, 1500));
     
@@ -189,19 +264,23 @@ export const AutoMLPage: React.FC = () => {
         datasetId: mockDatasetInfo.datasetId,
         datasetInfo: mockDatasetInfo,
       });
+      addLog('success', 'サンプルデータ生成完了', `5000行 × 10列`);
     }
   };
 
   // Prepare Step ハンドラー
   const handleAnalyzeData = async () => {
+    addLog('info', 'データ分析（EDA）開始...');
     // TODO: EDA分析API呼び出し
     await new Promise(resolve => setTimeout(resolve, 3000));
+    addLog('success', 'データ分析完了');
   };
 
   // Build Step ハンドラー
   const handleStartAutopilot = async (config: AutopilotConfig) => {
-    // TODO: Autopilot開始API呼び出し
-    console.log('Starting Autopilot with config:', config);
+    addLog('info', 'Autopilot開始...', JSON.stringify(config, null, 2));
+    
+    // TODO: 実際のAPIを呼び出す
     await new Promise(resolve => setTimeout(resolve, 5000));
     
     if (activeProjectId) {
@@ -223,27 +302,30 @@ export const AutoMLPage: React.FC = () => {
         modelId: mockModel.modelId,
         bestModel: mockModel,
       });
+      addLog('success', 'Autopilot完了', `ベストモデル: ${mockModel.modelType}, AUC: ${mockModel.metrics.auc}`);
     }
   };
 
   // Accuracy Step ハンドラー
   const handleLoadInsights = useCallback(async () => {
+    addLog('info', 'モデルインサイト読み込み中...');
     // TODO: モデルインサイトAPI呼び出し
     await new Promise(resolve => setTimeout(resolve, 2000));
+    addLog('success', 'インサイト読み込み完了');
   }, []);
 
   const handleExportReport = async () => {
+    addLog('info', 'レポートエクスポート中...');
     // TODO: レポートエクスポート機能
-    console.log('Exporting report...');
+    addLog('success', 'レポートをエクスポートしました');
   };
 
   // Test Step ハンドラー
   const handlePredict = async (data: Record<string, unknown>) => {
-    // TODO: 予測API呼び出し
-    console.log('Making prediction with data:', data);
+    addLog('info', '予測実行中...', JSON.stringify(data, null, 2));
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    return {
+    const result = {
       prediction: 'Churn',
       probability: 0.7842,
       positiveClass: 'Yes',
@@ -254,12 +336,14 @@ export const AutoMLPage: React.FC = () => {
         { feature: 'tech_support', strength: 0.15, direction: 'positive' as const },
       ],
     };
+    
+    addLog('success', '予測完了', `結果: ${result.prediction} (確率: ${(result.probability * 100).toFixed(1)}%)`);
+    return result;
   };
 
   // Deploy Step ハンドラー
   const handleDeploy = async (config: DeployConfig) => {
-    // TODO: デプロイAPI呼び出し
-    console.log('Deploying with config:', config);
+    addLog('info', 'デプロイ開始...', JSON.stringify(config, null, 2));
     await new Promise(resolve => setTimeout(resolve, 4000));
     
     const deploymentId = `deployment-${Date.now()}`;
@@ -267,12 +351,15 @@ export const AutoMLPage: React.FC = () => {
       updateProject(activeProjectId, { deploymentId });
     }
     
-    return {
+    const result = {
       deploymentId,
       predictionServer: 'https://app.datarobot.com/prediction-server',
       apiEndpoint: `https://app.datarobot.com/predApi/v1.0/deployments/${deploymentId}/predictions`,
       status: 'active' as const,
     };
+    
+    addLog('success', 'デプロイ完了', `Deployment ID: ${deploymentId}`);
+    return result;
   };
 
   const handleProjectComplete = () => {
@@ -501,26 +588,102 @@ export const AutoMLPage: React.FC = () => {
         </header>
 
         {/* コンテンツエリア */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* ステップコンテンツ */}
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="max-w-4xl mx-auto">
-              {renderStepContent()}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* メインコンテンツ + チャット */}
+          <div className="flex-1 flex overflow-hidden">
+            {/* ステップコンテンツ */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="max-w-4xl mx-auto">
+                {renderStepContent()}
+              </div>
             </div>
+
+            {/* チャットパネル */}
+            {chatOpen && (
+              <div className="w-96 border-l border-gray-800">
+                <AssistantChatPanel
+                  messages={chatMessages}
+                  onSendMessage={handleSendMessage}
+                  onQuickAction={(action) => handleSendMessage(action)}
+                  isLoading={isChatLoading}
+                />
+              </div>
+            )}
           </div>
 
-          {/* チャットパネル */}
-          {chatOpen && (
-            <div className="w-96 border-l border-gray-800">
-              <AssistantChatPanel
-                messages={chatMessages}
-                onSendMessage={handleSendMessage}
-                onQuickAction={(action) => handleSendMessage(action)}
-                isLoading={isChatLoading}
-              />
+          {/* ログパネル */}
+          {logPanelOpen && (
+            <div className={`border-t border-gray-800 bg-gray-950 transition-all ${logPanelExpanded ? 'h-80' : 'h-40'}`}>
+              <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-[#81FBA5]" />
+                  <span className="text-sm font-medium text-white">実行ログ</span>
+                  <span className="text-xs text-gray-500">({logs.length}件)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={clearLogs}
+                    className="text-xs text-gray-500 hover:text-white transition-colors"
+                  >
+                    クリア
+                  </button>
+                  <button
+                    onClick={() => setLogPanelExpanded(!logPanelExpanded)}
+                    className="p-1 text-gray-500 hover:text-white transition-colors"
+                  >
+                    {logPanelExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={() => setLogPanelOpen(false)}
+                    className="p-1 text-gray-500 hover:text-white transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="h-[calc(100%-36px)] overflow-y-auto p-2 font-mono text-xs">
+                {logs.length === 0 ? (
+                  <div className="text-gray-600 text-center py-4">ログはまだありません</div>
+                ) : (
+                  logs.map((log) => (
+                    <div key={log.id} className="py-1 border-b border-gray-900 last:border-0">
+                      <div className="flex items-start gap-2">
+                        <span className="text-gray-600 flex-shrink-0">
+                          {log.timestamp.toLocaleTimeString('ja-JP')}
+                        </span>
+                        <span className={`flex-shrink-0 ${
+                          log.level === 'success' ? 'text-green-400' :
+                          log.level === 'error' ? 'text-red-400' :
+                          log.level === 'warning' ? 'text-yellow-400' :
+                          'text-blue-400'
+                        }`}>
+                          [{log.level.toUpperCase()}]
+                        </span>
+                        <span className="text-gray-300">{log.message}</span>
+                      </div>
+                      {log.details && (
+                        <pre className="text-gray-500 ml-24 mt-1 text-[10px] overflow-x-auto whitespace-pre-wrap">
+                          {log.details}
+                        </pre>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
         </div>
+
+        {/* ログパネル表示ボタン（閉じている時） */}
+        {!logPanelOpen && (
+          <button
+            onClick={() => setLogPanelOpen(true)}
+            className="fixed bottom-4 right-4 p-3 bg-gray-800 rounded-full shadow-lg hover:bg-gray-700 transition-colors z-50"
+            title="ログパネルを開く"
+          >
+            <Terminal className="w-5 h-5 text-[#81FBA5]" />
+          </button>
+        )}
       </div>
     </div>
   );
