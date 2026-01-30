@@ -225,13 +225,13 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as typeof activeTab)}
-            className={\`
+            className={`
               flex items-center gap-2 px-4 py-3 font-medium transition-colors border-b-2 -mb-px
-              \${activeTab === tab.id
+              ${activeTab === tab.id
                 ? 'border-[#81FBA5] text-[#81FBA5]'
                 : 'border-transparent text-gray-400 hover:text-white'
               }
-            \`}
+            `}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
@@ -265,7 +265,7 @@ export const AccuracyStep: React.FC<AccuracyStepProps> = ({
           レポートをダウンロード
         </button>
         <button
-          onClick={() => window.open(\`https://app.datarobot.com/projects/\${projectId}\`, '_blank')}
+          onClick={() => window.open(`https://app.datarobot.com/projects/${projectId}`, '_blank')}
           disabled={!projectId}
           className="flex-1 py-3 border border-[#81FBA5] text-[#81FBA5] rounded-lg hover:bg-[#81FBA5]/10 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
         >
