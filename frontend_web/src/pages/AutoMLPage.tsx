@@ -142,37 +142,16 @@ export const AutoMLPage: React.FC = () => {
     addLog('info', `ファイルアップロード開始: ${file.name}`, `サイズ: ${(file.size / 1024).toFixed(1)} KB`);
     
     try {
-      // ファイルをBase64に変換
-      const reader = new FileReader();
+      // FormDataでファイルを送信
+      const formData = new FormData();
+      formData.append('file', file);
       
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const base64 = reader.result as string;
-          resolve(base64.split(',')[1] || base64);
-        };
-        reader.onerror = reject;
-      });
-      
-      reader.readAsDataURL(file);
-      const base64Content = await base64Promise;
-      addLog('info', 'Base64変換完了');
-      
-      // エージェントAPIを呼び出してDataRobotにアップロード
       addLog('info', 'DataRobot AIカタログへアップロード中...');
       
       try {
-        const response = await fetch(`${API_BASE_URL}/agent/chat`, {
+        const response = await fetch(`${API_BASE_URL}/upload/dataset`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: `upload_dataset_to_ai_catalogツールを使って、ファイル名「${file.name}」をアップロードしてください。`,
-            context: {
-              fileName: file.name,
-              fileSize: file.size,
-              fileType: file.type,
-              base64Content: base64Content.substring(0, 50000), // 最初の50KB
-            }
-          }),
+          body: formData,
         });
         
         if (response.ok) {
@@ -182,11 +161,11 @@ export const AutoMLPage: React.FC = () => {
           // プロジェクト情報を更新
           if (activeProjectId) {
             const datasetInfo: DatasetInfo = {
-              datasetId: result.datasetId || `dataset-${Date.now()}`,
-              name: file.name,
+              datasetId: result.dataset_id || `dataset-${Date.now()}`,
+              name: result.dataset_name || file.name,
               rows: result.rows || 0,
               columns: result.columns || 0,
-              features: result.features || [],
+              features: [],
               targetColumn: activeProject?.themeDefinition?.targetColumn || '',
               uploadedAt: new Date().toISOString(),
             };
@@ -195,11 +174,22 @@ export const AutoMLPage: React.FC = () => {
               datasetInfo: datasetInfo,
             });
           }
+          
+          // チャットにも通知
+          setChatMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `✅ **${file.name}** をDataRobot AIカタログにアップロードしました！\n\nDataset ID: \`${result.dataset_id}\`\n\n次のステップに進むか、「データを分析して」と入力してEDAを開始できます。`,
+            },
+          ]);
+          
         } else {
-          throw new Error(`API Error: ${response.status}`);
+          const errorText = await response.text();
+          throw new Error(`API Error: ${response.status} - ${errorText}`);
         }
       } catch (apiError) {
-        addLog('warning', 'API呼び出しに失敗、ローカルモードで続行', String(apiError));
+        addLog('warning', 'DataRobot APIへのアップロード失敗', String(apiError));
         
         // ローカルモード: ファイル情報を保存
         const fileInfo = {
@@ -225,18 +215,18 @@ export const AutoMLPage: React.FC = () => {
             datasetId: datasetInfo.datasetId,
             datasetInfo: datasetInfo,
           });
-          addLog('success', 'ローカルにファイル情報を保存しました');
+          addLog('info', 'ローカルにファイル情報を保存しました（後でDataRobotにアップロードできます）');
         }
+        
+        // チャットにも通知
+        setChatMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `⚠️ **${file.name}** のDataRobotへのアップロードに失敗しました。\n\nエラー: ${apiError}\n\nファイル情報はローカルに保存されています。後で手動でアップロードするか、チャットで「このファイルをDataRobotにアップロードして」と指示してください。`,
+          },
+        ]);
       }
-      
-      // チャットにも通知
-      setChatMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `📁 **${file.name}** のアップロード処理が完了しました。\n\n次のステップに進むか、「データを分析して」と入力してEDAを開始できます。`,
-        },
-      ]);
       
     } catch (error) {
       addLog('error', 'ファイルアップロード失敗', String(error));
